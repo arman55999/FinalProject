@@ -1,8 +1,8 @@
 #ifndef ___TXRUNNER__H_
 #define ___TXRUNNER__H_
 
-#include <thread>
 #include <map>
+#include <thread>
 
 #include "Database.h"
 #include "Transaction.h"
@@ -26,19 +26,27 @@ public:
 	template <typename FUNCTION, typename... ARGS>
 	void runTransactional(FUNCTION fun, ARGS... args) {
 
-		static std::map<std::thread::id, Transaction> recursionMap;
+		static std::multimap<std::thread::id, Transaction> recursionMap;
 		
 
 		Transaction currentTransaction(m_db);	//creating transaction
 
-		if (recursionMap.find(std::this_thread::get_id()) == recursionMap.end()) {
-			recursionMap.insert(std::pair<std::thread::id,Transaction>(std::this_thread::get_id(), currentTransaction));
+		if (recursionMap.count(std::this_thread::get_id()) == 0) {			
 			currentTransaction.start();
 		}
 		
+		recursionMap.insert(std::pair<std::thread::id, Transaction>(std::this_thread::get_id(), currentTransaction));
 		
 		try {
 			fun(this, args...);
+
+			recursionMap.erase(recursionMap.find(std::this_thread::get_id()));
+
+			if(recursionMap.find(std::this_thread::get_id()) == recursionMap.end()){
+				currentTransaction.commit();
+				return;
+			}
+			
 		}
 		catch (...) {
 			currentTransaction.abort();
@@ -46,7 +54,8 @@ public:
 			return;
 		}
 
-		currentTransaction.commit();
+		
+
 	}
 
 
