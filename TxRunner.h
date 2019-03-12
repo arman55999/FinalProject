@@ -3,9 +3,13 @@
 
 #include <map>
 #include <thread>
+#include <mutex>
+#include <vector>
 
 #include "Database.h"
 #include "Transaction.h"
+
+std::mutex m_mutex;
 
 class TxRunner_ {
 
@@ -25,42 +29,42 @@ public:
 
 	template <typename FUNCTION, typename... ARGS>
 	void runTransactional(FUNCTION fun, ARGS... args) {
-
-		static std::multimap<std::thread::id, Transaction> recursionMap;
 		
+		std::thread::id threadId = std::this_thread::get_id();
 
-		Transaction currentTransaction(m_db);	//creating transaction
+		if (recursionMap.find(threadId) == recursionMap.end()) {
 
-		if (recursionMap.count(std::this_thread::get_id()) == 0) {			
+			Transaction currentTransaction(m_db);
+
+			m_mutex.lock();
+			recursionMap.insert(std::pair<std::thread::id, Transaction>(threadId, currentTransaction));
+			m_mutex.unlock();
+
 			currentTransaction.start();
-		}
-		
-		recursionMap.insert(std::pair<std::thread::id, Transaction>(std::this_thread::get_id(), currentTransaction));
-		
-		try {
-			fun(this, args...);
 
-			recursionMap.erase(recursionMap.find(std::this_thread::get_id()));
+			try {
+				fun(this, args...);
+			}
 
-			if(recursionMap.find(std::this_thread::get_id()) == recursionMap.end()){
-				currentTransaction.commit();
+			catch (...) {
+				currentTransaction.abort();
+				recursionMap.erase(threadId);
 				return;
 			}
-			
-		}
-		catch (...) {
-			currentTransaction.abort();
-			recursionMap.erase(std::this_thread::get_id());
-			return;
-		}
 
-		
+			currentTransaction.commit();
+			recursionMap.erase(threadId);			
+		}
+		else {
+			fun(this, args...);
+		}
 
 	}
 
 
 private:
 	Database& m_db;
+	std::map<std::thread::id, Transaction> recursionMap;
 };
 
 #endif // ___TXRUNNER__H_
