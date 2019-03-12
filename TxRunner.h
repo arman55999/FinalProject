@@ -4,7 +4,6 @@
 #include <map>
 #include <thread>
 #include <mutex>
-#include <vector>
 
 #include "Database.h"
 #include "Transaction.h"
